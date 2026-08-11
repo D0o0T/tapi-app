@@ -1,0 +1,244 @@
+{
+  "info": {
+    "_postman_id": "b2c3d4e5-tapi-super-search-0001",
+    "name": "Tapi Super-Search API",
+    "description": "# Tapi — Super-Search API\n\nBackend endpoints for the **Super-Search** feature (global search across Chats, Tasks, and Bills). PRD: *Super-Search Feature · Sprint 2 · v1.6.21*.\n\n## Data source: LIVE (MongoDB)\nEvery endpoint queries the real collections (`rooms`, `tasks`, `bills`, `messages`) scoped to the authenticated user — **no static fixtures**. Results reflect the caller's own chats/tasks/bills. IDs in responses are real Mongo ObjectIds.\n\n## Getting started\n1. Set the `baseUrl` variable (default `http://localhost:40000`).\n2. Run **Get Dev Test Token** once (dev only) — its test script auto-fills `authToken` for every request.\n3. Collection-level **Bearer auth** (`{{authToken}}`) applies to every request except the token endpoint (No Auth). Auth is the shared `verifyToken` middleware.\n4. Set `taskId` / `billId` to real ids returned by the search endpoints to try the detail requests.\n\n## Mount point\nAll routes are under **`/api/search`** (mounted in `messaging/src/init.js`).\n\n## Conventions\n- Query is a case-insensitive substring match: chat title / DM counterpart name (chats), task title (tasks), bill code or title (bills). **Minimum 1 char** or results are empty.\n- `filters` is a comma-separated list of pill keys (see each request). Pills are OR-combined within a tab.\n- Chats come back **flat** (`results[]`); Tasks & Bills come back **grouped by chat** (`groups[]`).\n- Bill `direction` is viewer-relative: `owedToMe` (you are the sender) or `iOwe` (you are the recipient). Status pill + `payable` derive from the numeric bill `state` + direction.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{authToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Get Dev Test Token (dev only)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dev/test-token?phone=+10000000001",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "dev", "test-token"],
+          "query": [{ "key": "phone", "value": "+10000000001", "description": "Phone to mint/find a test user for. Blocked in production (403)." }]
+        },
+        "description": "Mints a JWT for a test user (creating the user if needed). **Non-production only** — returns 403 when `NODE_ENV=production`. The test script below stores `token` into the `authToken` collection variable so every other request is authenticated."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json && json.token) {",
+              "  pm.collectionVariables.set('authToken', json.token);",
+              "  console.log('authToken set for', json.user && json.user.phone);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 — token",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/dev/test-token?phone=+10000000001", "host": ["{{baseUrl}}"], "path": ["api", "dev", "test-token"], "query": [{ "key": "phone", "value": "+10000000001" }] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"user\": {\n    \"id\": \"6650a1b2c3d4e5f601020304\",\n    \"phone\": \"+10000000001\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"User\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Search — Chats",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/search?q=marketing&type=chats&filters=groups,unread",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search"],
+          "query": [
+            { "key": "q", "value": "marketing", "description": "Search query (min 1 char). Matches group title or DM counterpart name." },
+            { "key": "type", "value": "chats", "description": "chats | tasks | bills" },
+            { "key": "filters", "value": "groups,unread", "description": "Pills: groups · direct · private · hasTasks · hasBills · unread" }
+          ]
+        },
+        "description": "Chats tab. Flat `results[]` of chat cards. `unread`, `taskCount`, `billCount` and `matchCount` are computed live from the `messages`/`tasks`/`bills` collections."
+      },
+      "response": [
+        {
+          "name": "200 — chat results",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search?q=marketing&type=chats", "host": ["{{baseUrl}}"], "path": ["api", "search"], "query": [{ "key": "q", "value": "marketing" }, { "key": "type", "value": "chats" }] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"type\": \"chats\",\n  \"query\": \"marketing\",\n  \"results\": [\n    {\n      \"id\": \"6650a1b2c3d4e5f601020304\",\n      \"title\": \"Acme Corp Restructure\",\n      \"avatarInitials\": \"AC\",\n      \"avatarColor\": \"#C97B3A\",\n      \"isGroup\": true,\n      \"isPrivate\": false,\n      \"contextLabel\": \"Group · 14 members\",\n      \"unread\": 3,\n      \"lastActivity\": \"2h ago\",\n      \"taskCount\": 2,\n      \"billCount\": 2,\n      \"matchCount\": 3\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Search — Tasks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/search?q=budget&type=tasks&filters=assignedToMe,highPriority",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search"],
+          "query": [
+            { "key": "q", "value": "budget" },
+            { "key": "type", "value": "tasks" },
+            { "key": "filters", "value": "assignedToMe,highPriority", "description": "Pills: assignedToMe · assignedToOthers · inProgress · highPriority · dueThisWeek · completed" }
+          ]
+        },
+        "description": "Tasks tab. `groups[]` — each group is a chat header + its matching task rows (from `tasks` in the caller's rooms). `status`/`due`/`priority` derive from the numeric task fields."
+      },
+      "response": [
+        {
+          "name": "200 — tasks grouped by chat",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search?q=budget&type=tasks", "host": ["{{baseUrl}}"], "path": ["api", "search"], "query": [{ "key": "q", "value": "budget" }, { "key": "type", "value": "tasks" }] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"type\": \"tasks\",\n  \"query\": \"\",\n  \"count\": 1,\n  \"groups\": [\n    {\n      \"chat\": { \"id\": \"6650a1b2c3d4e5f601020304\", \"title\": \"Acme Corp Restructure\", \"avatarInitials\": \"AC\", \"avatarColor\": \"#C97B3A\", \"isGroup\": true, \"isPrivate\": false, \"contextLabel\": \"Group · 14 members\" },\n      \"count\": 1,\n      \"items\": [\n        {\n          \"id\": \"6651b2c3d4e5f60102030405\",\n          \"chatId\": \"6650a1b2c3d4e5f601020304\",\n          \"title\": \"Finalize Q4 Marketing budget\",\n          \"completed\": false,\n          \"status\": \"In progress\",\n          \"statusColor\": \"#2F6FED\",\n          \"due\": { \"label\": \"Due tomorrow\", \"urgent\": true, \"date\": \"2026-11-12T00:00:00.000Z\" },\n          \"priority\": \"High\",\n          \"assignee\": { \"initials\": \"Y\", \"name\": \"You\", \"color\": \"#C97B3A\" },\n          \"secondaryLine\": \"Needs owner sign-off before finance\",\n          \"priorityFire\": true\n        }\n      ]\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Search — Bills",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/search?q=retainer&type=bills&filters=owedToMe,awaitingPayment",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search"],
+          "query": [
+            { "key": "q", "value": "retainer" },
+            { "key": "type", "value": "bills" },
+            { "key": "filters", "value": "owedToMe,awaitingPayment", "description": "Pills: owedToMe · iOwe · awaitingPayment · overdue" }
+          ]
+        },
+        "description": "Bills tab. `groups[]` — chat header + matching bill rows. Backed by `billService.listBillsForUser` (matches bill **code or title**, chat-pair scoped to the caller)."
+      },
+      "response": [
+        {
+          "name": "200 — bills grouped by chat",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search?q=retainer&type=bills", "host": ["{{baseUrl}}"], "path": ["api", "search"], "query": [{ "key": "q", "value": "retainer" }, { "key": "type", "value": "bills" }] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"type\": \"bills\",\n  \"query\": \"retainer\",\n  \"count\": 1,\n  \"groups\": [\n    {\n      \"chat\": { \"id\": \"6650a1b2c3d4e5f601020304\", \"title\": \"Acme Corp Restructure\", \"avatarInitials\": \"AC\", \"avatarColor\": \"#C97B3A\", \"isGroup\": true, \"contextLabel\": \"Group · 14 members\" },\n      \"count\": 1,\n      \"items\": [\n        {\n          \"id\": \"6652c3d4e5f6010203040506\",\n          \"code\": \"20250021\",\n          \"title\": \"Q4 Marketing retainer\",\n          \"amount\": 4500,\n          \"currency\": 1,\n          \"amountLabel\": \"$4,500\",\n          \"direction\": \"owedToMe\",\n          \"status\": \"AWAITING PAYMENT\",\n          \"statusColor\": \"blue\",\n          \"payable\": false\n        }\n      ]\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task Detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/search/task/{{taskId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search", "task", "{{taskId}}"]
+        },
+        "description": "Full Task detail. Membership-checked (caller must be in the task's room → else 403). Returns source chat, status/due/priority/assignee, description, subtasks + progress, attachments.\n\n**Note:** `activity` is currently `[]` — the activity log (TaskActivity collection) is wired in Phase 2."
+      },
+      "response": [
+        {
+          "name": "200 — task detail",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search/task/{{taskId}}", "host": ["{{baseUrl}}"], "path": ["api", "search", "task", "{{taskId}}"] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"id\": \"6651b2c3d4e5f60102030405\",\n  \"chatId\": \"6650a1b2c3d4e5f601020304\",\n  \"title\": \"Finalize Q4 Marketing budget\",\n  \"completed\": false,\n  \"status\": \"In progress\",\n  \"statusColor\": \"#2F6FED\",\n  \"due\": { \"label\": \"Due tomorrow\", \"urgent\": true, \"date\": \"2026-11-12T00:00:00.000Z\" },\n  \"priority\": \"High\",\n  \"assignee\": { \"initials\": \"Y\", \"name\": \"You\", \"color\": \"#C97B3A\" },\n  \"secondaryLine\": \"Lock the final Q4 marketing spend...\",\n  \"priorityFire\": true,\n  \"description\": \"Lock the final Q4 marketing spend across paid, events and content.\",\n  \"subTasks\": [\n    { \"title\": \"Pull Q3 actuals\", \"done\": true },\n    { \"title\": \"Draft paid-media split\", \"done\": false },\n    { \"title\": \"Get owner sign-off\", \"done\": false }\n  ],\n  \"subTaskProgress\": { \"done\": 1, \"total\": 3 },\n  \"attachments\": [\n    { \"name\": \"Q4_budget.xlsx\", \"size\": \"48 KB\" }\n  ],\n  \"activity\": [],\n  \"chat\": { \"id\": \"6650a1b2c3d4e5f601020304\", \"title\": \"Acme Corp Restructure\", \"contextLabel\": \"Group · 14 members\" }\n}"
+        },
+        {
+          "name": "404 — not found",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search/task/000000000000000000000000", "host": ["{{baseUrl}}"], "path": ["api", "search", "task", "000000000000000000000000"] } },
+          "status": "Not Found",
+          "code": 404,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"error\": \"Task not found\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Bill Detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/search/bill/{{billId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search", "bill", "{{billId}}"]
+        },
+        "description": "Full Bill detail. Membership-checked (caller must be in sender or recipient chat → else 403). Returns amount heading + status, invoice info, line items + total, and a `timeline` built from the bill's state `history` (each event carries a `state` and an i18n `key` under `bills.history.*` for the client to localise)."
+      },
+      "response": [
+        {
+          "name": "200 — bill detail",
+          "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/search/bill/{{billId}}", "host": ["{{baseUrl}}"], "path": ["api", "search", "bill", "{{billId}}"] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"id\": \"6652c3d4e5f6010203040506\",\n  \"code\": \"20250021\",\n  \"title\": \"Q4 Marketing retainer\",\n  \"amount\": 4500,\n  \"currency\": 1,\n  \"amountLabel\": \"$4,500\",\n  \"direction\": \"owedToMe\",\n  \"status\": \"AWAITING PAYMENT\",\n  \"statusColor\": \"blue\",\n  \"payable\": false,\n  \"amountHeading\": \"Owed to you\",\n  \"invoiceNo\": \"20250021\",\n  \"from\": \"Acme Corp\",\n  \"currencyCode\": \"USD\",\n  \"issued\": \"Oct 31, 2025\",\n  \"dueDate\": \"Nov 14, 2025\",\n  \"lineItems\": [\n    { \"name\": \"Paid media retainer\", \"sub\": \"1 × $3,200\", \"amount\": \"$3,200\" },\n    { \"name\": \"Content production\", \"sub\": \"1 × $1,300\", \"amount\": \"$1,300\" }\n  ],\n  \"subtotal\": \"$4,500\",\n  \"total\": \"$4,500\",\n  \"paidAmount\": \"$0\",\n  \"timeline\": [\n    { \"state\": 1, \"key\": \"bills.history.offer_sent\", \"date\": \"Oct 31, 2025\" },\n    { \"state\": 2, \"key\": \"bills.history.offer_accepted\", \"date\": \"Nov 2, 2025\" }\n  ],\n  \"chat\": { \"id\": \"6650a1b2c3d4e5f601020304\", \"title\": \"Acme Corp Restructure\", \"contextLabel\": \"Group · 14 members\" }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Bill — Submit & Pay",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "amount", "value": "", "type": "text", "description": "Optional partial amount. Omit to pay the full remaining balance." }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/search/bill/{{billId}}/pay",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "search", "bill", "{{billId}}", "pay"]
+        },
+        "description": "Submit & Pay Bill. Pre-gateway this performs the real recipient action — `billService.markPaid` (bill → PaymentClaimed) — and returns the updated bill. **The actual payment-gateway charge is Phase 2** (`gateway: \"stub-phase2\"`). Sender-side callers (you can't pay a bill owed to you) or bills not in a payable state → **409**."
+      },
+      "response": [
+        {
+          "name": "200 — payment claimed",
+          "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/api/search/bill/{{billId}}/pay", "host": ["{{baseUrl}}"], "path": ["api", "search", "bill", "{{billId}}", "pay"] } },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"success\": true,\n  \"gateway\": \"stub-phase2\",\n  \"bill\": {\n    \"id\": \"6652c3d4e5f6010203040506\",\n    \"code\": \"20250021\",\n    \"title\": \"Q4 Marketing retainer\",\n    \"amount\": 4500,\n    \"currency\": 1,\n    \"amountLabel\": \"$4,500\",\n    \"direction\": \"iOwe\",\n    \"status\": \"PAYMENT CLAIMED\",\n    \"statusColor\": \"blue\",\n    \"payable\": false\n  }\n}"
+        },
+        {
+          "name": "409 — not payable",
+          "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/api/search/bill/{{billId}}/pay", "host": ["{{baseUrl}}"], "path": ["api", "search", "bill", "{{billId}}", "pay"] } },
+          "status": "Conflict",
+          "code": 409,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"error\": \"Invoice cannot be marked paid in its current state\"\n}"
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:40000" },
+    { "key": "authToken", "value": "" },
+    { "key": "taskId", "value": "6651b2c3d4e5f60102030405" },
+    { "key": "billId", "value": "6652c3d4e5f6010203040506" }
+  ]
+}
