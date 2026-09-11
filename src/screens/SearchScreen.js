@@ -1,19 +1,21 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   SafeAreaView,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import styles from './Style';
-import { searchApi } from './apiService';
-import { openBill, openChat, openTask } from './navigation';
+import { Ionicons } from '@expo/vector-icons';
+import styles from '../styles/Style';
+import { colors } from '../constants/theme';
+import { searchApi } from '../services/apiService';
+import { useDebounce } from '../hooks/useDebounce';
 
 const TABS = [
   { key: 'Chats', label: 'Chats', icon: 'chatbubbles-outline' },
@@ -45,58 +47,9 @@ function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function filterChatsLocally(chats, filters) {
-  if (!filters || filters.length === 0) return chats;
-  return chats.filter((item) => {
-    return filters.every((filter) => {
-      const f = filter.toLowerCase();
-      if (f === 'unread') return (item.unread || 0) > 0;
-      if (f === 'has tasks') return (item.taskCount || 0) > 0;
-      if (f === 'has bills') return (item.billCount || 0) > 0;
-      if (f === 'groups') return item.isGroup || item.contextLabel?.toLowerCase().includes('group') || item.type === 'group';
-      if (f === 'direct messages' || f === 'private') return !item.isGroup && item.type !== 'group';
-      return true;
-    });
-  });
-}
-
-function filterGroupedLocally(groups, filters, tab) {
-  if (!filters || filters.length === 0) return groups;
-
-  return groups
-    .map((group) => {
-      const filteredItems = (group.items || []).filter((item) => {
-        return filters.every((filter) => {
-          const f = filter.toLowerCase();
-
-          if (tab === 'Tasks') {
-            if (f === 'completed') return !!item.completed;
-            if (f === 'in progress') return !item.completed;
-            if (f === 'high priority') return item.priority?.toLowerCase() === 'high';
-            if (f === 'assigned to me') return item.assignee?.isMe || item.assignedToMe;
-            if (f === 'assigned to others') return !item.assignee?.isMe;
-            if (f === 'due this week') return !item.isOverdue;
-          }
-
-          if (tab === 'Bills') {
-            const status = (item.status || '').toLowerCase();
-            if (f === 'owed to me') return status.includes('owed') || status.includes('you owe');
-            if (f === 'i owe') return status.includes('i owe') || status.includes('you owe');
-            if (f === 'awaiting payment') return status.includes('awaiting');
-            if (f === 'overdue') return status.includes('overdue');
-          }
-
-          return true;
-        });
-      });
-
-      return { ...group, items: filteredItems };
-    })
-    .filter((group) => group.items.length > 0);
-}
-
 export default function SearchScreen({ navigation }) {
-  const [searchQuery, setSearchQuery] = useState('');
+  // State variables for query, active tab, active filters, results, and loading state
+  const [searchQuery, setSearchQuery] = useState('Q4 Marketing');
   const [activeTab, setActiveTab] = useState('Chats');
   const [activeFilters, setActiveFilters] = useState([]);
   const [chatResults, setChatResults] = useState([]);
@@ -104,12 +57,16 @@ export default function SearchScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  const debounceTimerRef = useRef(null);
+  // Debounce search query to prevent excessive API requests
+  const debouncedSearchQuery = useDebounce(searchQuery, 250);
+
+  // Track the latest request sequence to avoid race conditions
   const requestIdRef = useRef(0);
 
-  const handleSearch = useCallback(async (query, tab, filters) => {
+  // Memoized search execution function
+  const executeSearch = useCallback(async (query, tab, filters) => {
     const trimmed = (query || '').trim();
-    if (!trimmed) {
+    if (trimmed.length < 1) {
       setChatResults([]);
       setGroupedResults([]);
       setIsLoading(false);
@@ -126,45 +83,30 @@ export default function SearchScreen({ navigation }) {
       if (thisRequest !== requestIdRef.current) return;
 
       if (tab === 'Chats') {
-        const list = data?.results || data?.chats || data?.data || data?.items || [];
-        const rawList = Array.isArray(list) ? list : [];
-        setChatResults(filterChatsLocally(rawList, filters));
+        const list = data?.results || data?.chats || [];
+        setChatResults(Array.isArray(list) ? list : []);
         setGroupedResults([]);
       } else {
-        const list = data?.groups || data?.results || data?.items || data?.data || [];
-        const rawList = Array.isArray(list) ? list : [];
-        setGroupedResults(filterGroupedLocally(rawList, filters, tab));
+        const groups = data?.groups || [];
+        setGroupedResults(Array.isArray(groups) ? groups : []);
         setChatResults([]);
       }
     } catch (err) {
       if (thisRequest !== requestIdRef.current) return;
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to fetch results from backend.';
-      setErrorMsg(msg);
+      setErrorMsg('Unable to retrieve results. Pull down to refresh.');
       setChatResults([]);
       setGroupedResults([]);
     } finally {
-      if (thisRequest === requestIdRef.current) setIsLoading(false);
+      if (thisRequest === requestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (searchQuery.trim().length > 0) {
-        handleSearch(searchQuery, activeTab, activeFilters);
-      }
-    }, [searchQuery, activeTab, activeFilters, handleSearch])
-  );
-
+  // Trigger search when debounced query, active tab, or filters change
   useEffect(() => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(() => {
-      handleSearch(searchQuery, activeTab, activeFilters);
-    }, 300);
-    return () => clearTimeout(debounceTimerRef.current);
-  }, [searchQuery, activeTab, activeFilters, handleSearch]);
+    executeSearch(debouncedSearchQuery, activeTab, activeFilters);
+  }, [debouncedSearchQuery, activeTab, activeFilters, executeSearch]);
 
   const clearSearch = () => {
     setSearchQuery('');
@@ -186,15 +128,22 @@ export default function SearchScreen({ navigation }) {
     setActiveFilters([]);
   };
 
+  // Render query text with blue background highlight
   const renderHighlightedText = (text, query) => {
     const stringText = safeString(text, '');
     if (!query || !stringText) return <Text>{stringText}</Text>;
-    const parts = stringText.split(new RegExp(`(${escapeRegex(query)})`, 'gi'));
+
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return <Text>{stringText}</Text>;
+
+    const parts = stringText.split(new RegExp(`(${escapeRegex(trimmedQuery)})`, 'gi'));
     return (
       <Text>
         {parts.map((part, i) =>
-          part.toLowerCase() === query.toLowerCase() ? (
-            <Text key={i} style={styles.highlightedText}>{part}</Text>
+          part.toLowerCase() === trimmedQuery.toLowerCase() ? (
+            <Text key={i} style={styles.highlightedText}>
+              {part}
+            </Text>
           ) : (
             <Text key={i}>{part}</Text>
           )
@@ -203,17 +152,24 @@ export default function SearchScreen({ navigation }) {
     );
   };
 
+  // Status pill style resolution matching PRD requirements
   const getBillStatusStyle = (status = '') => {
     const s = safeString(status).toUpperCase();
-    if (s.includes('PAID')) return { bg: '#E8F5E9', text: '#2E7D32' };
-    if (s.includes('OVERDUE')) return { bg: '#FFEBEE', text: '#C62828' };
-    if (s.includes('YOU OWE') || s.includes('OFFER') || s.includes('PENDING'))
-      return { bg: '#FFF3E0', text: '#E65100' };
-    return { bg: '#E3F2FD', text: '#007AFF' };
+    if (s.includes('PAID')) return { bg: colors.successBg, text: colors.success };
+    if (s.includes('OVERDUE')) return { bg: colors.dangerBg, text: colors.danger };
+    if (s.includes('YOU OWE') || s.includes('OFFER') || s.includes('PENDING')) {
+      return { bg: colors.warningBg, text: colors.warningText };
+    }
+    return { bg: colors.primaryLight, text: colors.primary };
   };
 
+  const handleToggleTaskCompleted = async (taskItem) => {
+    await searchApi.completeTask(taskItem.id);
+    executeSearch(searchQuery, activeTab, activeFilters);
+  };
+
+  // Render chat result card
   const renderChatItem = ({ item }) => {
-    const targetId = item.id || item.chatId;
     const title = item.title || item.name || '';
     const initials =
       item.avatarInitials || safeString(title, 'CH').substring(0, 2).toUpperCase();
@@ -221,11 +177,24 @@ export default function SearchScreen({ navigation }) {
     return (
       <TouchableOpacity
         style={styles.chatCard}
-        onPress={() => openChat({ id: targetId, chat: item, searchQuery })}
+        activeOpacity={0.7}
+        onPress={() =>
+          navigation.navigate('ChatDetail', {
+            chatId: item.id,
+            chat: item,
+            searchQuery,
+          })
+        }
       >
-        <View style={[styles.avatarCircle, { backgroundColor: item.avatarColor || '#007AFF' }]}>
+        <View
+          style={[
+            styles.avatarCircle,
+            { backgroundColor: item.avatarColor || colors.primary },
+          ]}
+        >
           <Text style={styles.avatarText}>{initials}</Text>
         </View>
+
         <View style={styles.chatInfo}>
           <View style={styles.chatTitleRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -242,9 +211,11 @@ export default function SearchScreen({ navigation }) {
               {safeString(item.lastActivity || item.timeAgo, '')}
             </Text>
           </View>
+
           <Text style={styles.chatSummary}>
             {`${item.taskCount ?? 0} tasks · ${item.billCount ?? 0} bills`}
           </Text>
+
           {(item.matchCount > 0 || item.matches > 0) && (
             <View style={styles.matchesPill}>
               <Text style={styles.matchesPillText}>
@@ -253,28 +224,27 @@ export default function SearchScreen({ navigation }) {
             </View>
           )}
         </View>
+
         <Ionicons name="chevron-forward" size={18} color="#C7C7CC" />
       </TouchableOpacity>
     );
   };
 
+  // Render grouped results (Tasks & Bills)
   const renderGroupedItem = ({ item: groupItem }) => {
-    const groupId = groupItem.id || groupItem.chat?.id;
     const items = groupItem.items || [];
     const chat = groupItem.chat || {};
 
     return (
       <View style={styles.groupCard}>
+        {/* Group Header */}
         <TouchableOpacity
           style={styles.groupHeader}
+          activeOpacity={0.7}
           onPress={() =>
-            openChat({
-              id: groupId,
-              chat: {
-                ...chat,
-                relatedItems: items,
-                activeTabType: activeTab,
-              },
+            navigation.navigate('ChatDetail', {
+              chatId: chat.id,
+              chat: { ...chat, relatedItems: items, activeTabType: activeTab },
               searchQuery,
             })
           }
@@ -282,64 +252,76 @@ export default function SearchScreen({ navigation }) {
           <View
             style={[
               styles.avatarCircleSmall,
-              { backgroundColor: chat.avatarColor || '#007AFF', marginRight: 8 },
+              { backgroundColor: chat.avatarColor || colors.primary, marginRight: 10 },
             ]}
           >
             <Text style={styles.avatarTextSmall}>
               {safeString(
                 chat.avatarInitials,
-                safeString(chat.title || groupItem.groupTitle, 'G').substring(0, 2).toUpperCase()
+                safeString(chat.title, 'G').substring(0, 2).toUpperCase()
               )}
             </Text>
           </View>
+
           <View style={{ flex: 1 }}>
-            <Text style={styles.groupTitle}>
-              {safeString(chat.title || groupItem.groupTitle, '')}
+            <Text style={styles.groupTitle}>{safeString(chat.title, 'Chat')}</Text>
+            <Text style={styles.groupSubtitle}>
+              {safeString(chat.contextLabel, 'Conversation')}
             </Text>
-            <Text style={styles.groupSubtitle}>{safeString(chat.contextLabel, '')}</Text>
           </View>
+
           <View style={styles.resultBadge}>
             <Text style={styles.resultBadgeText}>{items.length}</Text>
           </View>
         </TouchableOpacity>
 
+        {/* Item Rows */}
         {items.map((subItem, index) => {
           const itemId = subItem.id ?? index;
           const title = subItem.title || subItem.name || '';
+
           return (
             <TouchableOpacity
               key={String(itemId)}
               style={styles.itemRow}
+              activeOpacity={0.65}
               onPress={() => {
                 if (activeTab === 'Tasks') {
-                  openTask({
-                    id: itemId,
+                  navigation.navigate('TaskDetail', {
+                    taskId: subItem.id,
                     task: { ...subItem, chat },
                   });
                 } else {
-                  openBill({
-                    id: itemId,
+                  navigation.navigate('BillDetail', {
+                    billId: subItem.id,
                     bill: { ...subItem, chat },
                   });
                 }
               }}
             >
               {activeTab === 'Tasks' && (
-                <Ionicons
-                  name={subItem.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={20}
-                  color={subItem.completed ? '#34C759' : '#8E8E93'}
-                  style={{ marginRight: 10 }}
-                />
+                <TouchableOpacity
+                  onPress={() => handleToggleTaskCompleted(subItem)}
+                  style={{ paddingRight: 4 }}
+                >
+                  <Ionicons
+                    name={subItem.completed ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={22}
+                    color={subItem.completed ? colors.success : colors.textSecondary}
+                    style={{ marginRight: 8 }}
+                  />
+                </TouchableOpacity>
               )}
+
               {activeTab === 'Bills' && (
                 <Ionicons
                   name="document-text-outline"
-                  size={22}
-                  color="#007AFF"
+                  size={24}
+                  color={colors.primary}
                   style={{ marginRight: 10 }}
                 />
               )}
+
               <View style={{ flex: 1 }}>
                 <Text
                   style={[
@@ -351,42 +333,39 @@ export default function SearchScreen({ navigation }) {
                 >
                   {renderHighlightedText(title, searchQuery)}
                 </Text>
-                {(subItem.secondaryLine ||
-                  subItem.note ||
-                  subItem.attachmentsCount != null) && (
+
+                {(subItem.secondaryLine || subItem.priorityFire) && (
                   <Text style={styles.rowSecondaryNote} numberOfLines={1}>
-                    {subItem.priority === 'High' ? '🔥 ' : ''}
-                    {safeString(
-                      subItem.secondaryLine ||
-                        subItem.note ||
-                        (subItem.attachmentsCount != null
-                          ? `${subItem.attachmentsCount} files attached`
-                          : '')
-                    )}
+                    {subItem.priorityFire || subItem.priority === 'High' ? '🔥 ' : ''}
+                    {safeString(subItem.secondaryLine, '')}
                   </Text>
                 )}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
                   {activeTab === 'Tasks' && (
                     <View
                       style={[
                         styles.duePill,
-                        subItem.isOverdue ? styles.duePillOverdue : styles.duePillNormal,
+                        subItem.isOverdue || subItem.due?.urgent
+                          ? styles.duePillOverdue
+                          : styles.duePillNormal,
                       ]}
                     >
                       <Text
                         style={
-                          subItem.isOverdue
+                          subItem.isOverdue || subItem.due?.urgent
                             ? styles.duePillTextOverdue
                             : styles.duePillTextNormal
                         }
                       >
                         {safeString(
-                          subItem.dueDateLabel || subItem.dueDate,
+                          subItem.due?.label || subItem.dueDateLabel || subItem.dueDate,
                           'No date'
                         )}
                       </Text>
                     </View>
                   )}
+
                   {activeTab === 'Bills' && subItem.status && (
                     <View
                       style={[
@@ -406,6 +385,7 @@ export default function SearchScreen({ navigation }) {
                   )}
                 </View>
               </View>
+
               {activeTab === 'Tasks' && subItem.assignee && (
                 <View
                   style={[
@@ -414,20 +394,20 @@ export default function SearchScreen({ navigation }) {
                       backgroundColor:
                         subItem.assignee.color ||
                         subItem.assignee.avatarColor ||
-                        '#F4A261',
-                      marginLeft: 6,
+                        '#C97B3A',
                     },
                   ]}
                 >
                   <Text style={styles.avatarTextMicro}>
                     {safeString(
                       subItem.assignee.initials ||
-                        (subItem.assignee.name || 'A').substring(0, 1),
-                      'A'
+                        (subItem.assignee.name || 'Y').substring(0, 1),
+                      'Y'
                     )}
                   </Text>
                 </View>
               )}
+
               {activeTab === 'Bills' && (
                 <Text style={styles.amountText}>
                   {safeString(
@@ -448,25 +428,30 @@ export default function SearchScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
       <Text style={styles.screenHeaderTitle}>Search</Text>
 
+      {/* Search Bar */}
       <View style={styles.searchBarContainer}>
-        <Ionicons name="search" size={18} color="#8E8E93" style={styles.searchIcon} />
+        <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search..."
+          placeholder="Search chats, tasks, bills..."
+          placeholderTextColor={colors.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"
+          autoCorrect={false}
           returnKeyType="search"
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={clearSearch}>
-            <Ionicons name="close-circle" size={18} color="#8E8E93" />
+          <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
       </View>
 
+      {/* Content Type Tabs */}
       <View style={styles.tabsContainer}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;
@@ -478,11 +463,12 @@ export default function SearchScreen({ navigation }) {
                 isActive ? styles.activeTabButton : styles.inactiveTabButton,
               ]}
               onPress={() => handleTabChange(tab.key)}
+              activeOpacity={0.8}
             >
               <Ionicons
                 name={tab.icon}
                 size={16}
-                color={isActive ? '#FFFFFF' : '#8E8E93'}
+                color={isActive ? '#FFFFFF' : colors.textSecondary}
                 style={styles.tabIcon}
               />
               <Text style={isActive ? styles.activeTabText : styles.inactiveTabText}>
@@ -493,6 +479,7 @@ export default function SearchScreen({ navigation }) {
         })}
       </View>
 
+      {/* Sub-Filter Pills */}
       <View style={styles.subFilterWrapper}>
         <ScrollView
           horizontal
@@ -509,6 +496,7 @@ export default function SearchScreen({ navigation }) {
                   isActive ? styles.activePill : styles.inactivePill,
                 ]}
                 onPress={() => toggleFilter(filterKey)}
+                activeOpacity={0.7}
               >
                 <Text style={isActive ? styles.activePillText : styles.inactivePillText}>
                   {filterKey}
@@ -519,9 +507,10 @@ export default function SearchScreen({ navigation }) {
         </ScrollView>
       </View>
 
+      {/* Loading Indicator or Result List */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : errorMsg ? (
         <View style={styles.emptyContainer}>
@@ -530,16 +519,29 @@ export default function SearchScreen({ navigation }) {
       ) : (
         <FlatList
           data={listData}
-          keyExtractor={(item, index) => String(item.id || item.chat?.id || index)}
+          keyExtractor={(item, index) =>
+            String(item.id || item.chat?.id || `group-${index}`)
+          }
           renderItem={activeTab === 'Chats' ? renderChatItem : renderGroupedItem}
           style={styles.resultsList}
+          contentContainerStyle={{ paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             searchQuery.trim().length > 0 ? (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No results found</Text>
+                <Ionicons name="search-outline" size={44} color="#C7C7CC" />
+                <Text style={[styles.emptyText, { marginTop: 12 }]}>
+                  No {activeTab.toLowerCase()} found matching “{searchQuery}”
+                </Text>
               </View>
-            ) : null
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="search-outline" size={44} color="#C7C7CC" />
+                <Text style={[styles.emptyText, { marginTop: 12 }]}>
+                  Type at least 1 character to search
+                </Text>
+              </View>
+            )
           }
         />
       )}

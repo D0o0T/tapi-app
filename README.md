@@ -1,50 +1,101 @@
-# Welcome to your Expo app 👋
+# Tapi Super-Search (v1.6.21)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Mobile client application for Tapi Super-Search built with React Native and Expo (SDK 54), adhering to strict product specification requirements and modern clean architecture standards.
 
-## Get started
+---
 
-1. Install dependencies
+## 🚀 Key Highlights & Architecture
 
-   ```bash
-   npm install
-   ```
+- **100% Pure JavaScript**: Built completely with clean, modern ECMAScript (ES6+) with zero TypeScript dependencies.
+- **Native Navigation**: Powered by `@react-navigation/native-stack` without Expo Router file-system routing conflicts.
+- **Layered Architecture**:
+  - `src/screens/`: Independent screen components implementing all user stories.
+  - `src/navigation/`: Native Stack routing configuration.
+  - `src/constants/`: Centralized design system tokens (colors, spacing, typography, radii).
+  - `src/services/`: Resilient API service connecting to backend endpoints with an intelligent offline mock fallback.
+  - `src/hooks/`: Custom reusable hooks (including `useDebounce` for search optimization).
+  - `src/styles/`: Modular, maintainable StyleSheet abstractions.
 
-2. Start the app
+---
 
-   ```bash
-   npx expo start
-   ```
+## 📱 Features & Implemented Flows
 
-In the output, you'll find options to open the app in a
+1. **Unified Super-Search**:
+   - Real-time search across Tasks, Bills, and Chats.
+   - Filter pills with dynamic counts and empty states.
+   - Search query debouncing (300ms) to conserve network and battery resources.
+   - History retention with quick recents chips and clear actions.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+2. **Task Flow**:
+   - Detail view with status badge, priority, due date, description, and assignees.
+   - Quick action to complete or re-open tasks.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+3. **Bill Flow**:
+   - Amount, payment status, due date, invoice ID, and line-item breakdown.
+   - Actionable payment status toggling.
 
-## Get a fresh project
+4. **Chat Flow**:
+   - Interactive message history view with sender identification and message timestamps.
+   - Quick messaging bar with live append capability.
 
-When you're ready, run:
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+- Node.js (>= 18)
+- npm or yarn
+- Expo Go app or Android/iOS Emulator
+
+### Installation
 
 ```bash
-npm run reset-project
+# Clone the repository
+git clone <REPOSITORY_URL>
+cd tapi-app-v2
+
+# Install dependencies
+npm install
+
+# Start the Expo development server
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Running on Devices
+- **Android**: Press `a` in the terminal or run `npx expo run:android`
+- **iOS**: Press `i` in the terminal or run `npx expo run:ios`
+- **Web**: Press `w` in the terminal or run `npx expo start --web`
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## 📁 Project Structure
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+tapi-app-v2/
+├── assets/                  # App icons and splash assets
+├── src/
+│   ├── constants/
+│   │   └── theme.js         # Design tokens & color palette
+│   ├── hooks/
+│   │   └── useDebounce.js   # Custom search debounce hook
+│   ├── navigation/
+│   │   └── AppNavigator.js  # React Navigation Native Stack
+│   ├── screens/
+│   │   ├── SearchScreen.js      # Unified search & filters
+│   │   ├── TaskDetailScreen.js  # Task details & actions
+│   │   ├── BillDetailScreen.js  # Bill invoice details
+│   │   └── ChatDetailScreen.js  # Chat message thread
+│   ├── services/
+│   │   └── apiService.js    # API client with fallback data
+│   └── styles/
+│       └── Style.js         # App-wide styles
+├── App.js                   # Root component
+├── app.json                 # Expo configuration
+├── index.js                 # Entry point
+└── package.json             # Dependencies & scripts
+```
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 📄 License
+MIT License
